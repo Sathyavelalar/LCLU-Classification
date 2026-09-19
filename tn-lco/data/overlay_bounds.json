@@ -1,0 +1,55 @@
+{
+  "bbox": [
+    77.45,
+    11.15,
+    77.8,
+    11.45
+  ],
+  "corners_lonlat": [
+    [
+      77.45,
+      11.45
+    ],
+    [
+      77.8,
+      11.45
+    ],
+    [
+      77.8,
+      11.15
+    ],
+    [
+      77.45,
+      11.15
+    ]
+  ],
+  "crs": "EPSG:3857",
+  "t1_label": "2019 Jan-Apr",
+  "t2_label": "2026 Jan-Apr",
+  "classes": {
+    "0": {
+      "name": "Water",
+      "color": "#1f6feb"
+    },
+    "1": {
+      "name": "Forest/Trees",
+      "color": "#1a7f37"
+    },
+    "2": {
+      "name": "Cropland",
+      "color": "#a4d65e"
+    },
+    "3": {
+      "name": "Built-up",
+      "color": "#d1242f"
+    },
+    "4": {
+      "name": "Barren",
+      "color": "#bf8700"
+    },
+    "5": {
+      "name": "Shrub/Grass",
+      "color": "#7d8590"
+    }
+  }
+}
