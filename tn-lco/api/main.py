@@ -129,6 +129,7 @@ def changes(min_area_ha: float = Query(0.1, ge=0),
                     round(c.ndbi_delta,3) AS ndbi_delta,
                     round(c.vv_delta,3)   AS vv_delta,
                     c.confidence, c.geojson,
+                    c.centroid_lon, c.centroid_lat,
                     COALESCE((SELECT v.verdict FROM verification v
                               WHERE v.change_event_id = c.id
                               ORDER BY v.observed_at DESC LIMIT 1), 'unverified') AS verdict

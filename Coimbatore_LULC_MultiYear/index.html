@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Coimbatore LULC | 2019-2026</title>
+  <style>
+    :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--tx:#e6edf3;--dim:#8b949e;--accent:#2f81f7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,sans-serif}
+    header{padding:22px 28px;border-bottom:1px solid var(--line)}
+    h1{margin:0;font-size:22px} h2{font-size:14px;margin:0 0 10px}
+    .sub,.muted{color:var(--dim);font-size:12px}
+    main{display:grid;grid-template-columns:290px 1fr;gap:18px;padding:18px;max-width:1500px;margin:auto}
+    aside,.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
+    aside{align-self:start;position:sticky;top:18px}
+    label{display:block;color:var(--dim);font-size:12px;margin:12px 0 5px}
+    select,input[type=range],button{width:100%}
+    select,button{background:#21262d;color:var(--tx);border:1px solid var(--line);border-radius:5px;padding:8px}
+    button{cursor:pointer} button:hover{border-color:var(--accent)}
+    .legend{margin-top:20px}.legend div{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12px}
+    .swatch{width:14px;height:14px;border-radius:2px}
+    .viewer{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .map{position:relative;background:#010409;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+    .map img{display:block;width:100%;aspect-ratio:16/10;object-fit:contain}
+    .map h2{position:absolute;top:10px;left:10px;background:#0d1117dd;padding:4px 8px;border-radius:4px;z-index:1}
+    .compare{margin-top:18px}.compare img{width:100%;display:block;aspect-ratio:16/10;object-fit:contain;background:#010409;border:1px solid var(--line);border-radius:6px}
+    .compare-stage{position:relative}.compare-stage img:last-child{position:absolute;inset:0;opacity:.5}
+    .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+    .year-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+    .year-card{padding:0;background:#0d1117;border:1px solid var(--line);border-radius:6px;overflow:hidden;text-align:left}
+    .year-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+    .year-card img{display:block;width:100%;aspect-ratio:16/10;object-fit:contain;background:#010409}
+    .year-card span{display:block;padding:7px 9px;color:var(--tx)}
+    .links{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+    .links a{color:#58a6ff;font-size:12px}
+    @media(max-width:850px){main{grid-template-columns:1fr}aside{position:static}.year-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:560px){.viewer,.toolbar{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Coimbatore Land Use / Land Cover</h1>
+    <div class="sub">TN-LCO classification outputs · 2019–2026 · 50 m exports</div>
+  </header>
+  <main>
+    <aside>
+      <h2>Year comparison</h2>
+      <label for="leftYear">Left / baseline year</label>
+      <select id="leftYear"></select>
+      <label for="rightYear">Right / current year</label>
+      <select id="rightYear"></select>
+      <label for="opacity">Current-year opacity: <b id="opacityValue">50%</b></label>
+      <input id="opacity" type="range" min="0" max="100" value="50">
+      <div class="legend">
+        <h2>Classes</h2>
+        <div><span class="swatch" style="background:#1f6feb"></span>Water</div>
+        <div><span class="swatch" style="background:#1a7f37"></span>Forest / Trees</div>
+        <div><span class="swatch" style="background:#a4d65e"></span>Cropland</div>
+        <div><span class="swatch" style="background:#d1242f"></span>Built-up</div>
+        <div><span class="swatch" style="background:#bf8700"></span>Barren</div>
+        <div><span class="swatch" style="background:#7d8590"></span>Shrub / Grass</div>
+      </div>
+      <div class="links">
+        <a href="Code.txt" target="_blank">Open Earth Engine code</a>
+        <a href="TIF_Files/" target="_blank">Open GeoTIFF folder</a>
+      </div>
+    </aside>
+    <section>
+      <div class="panel">
+        <div class="viewer">
+          <div class="map"><h2 id="leftLabel">2019</h2><img id="leftImage" alt="Coimbatore LULC baseline"></div>
+          <div class="map"><h2 id="rightLabel">2026</h2><img id="rightImage" alt="Coimbatore LULC current"></div>
+        </div>
+        <div class="compare">
+          <h2>Overlay comparison</h2>
+          <div class="compare-stage">
+            <img id="overlayBase" alt="Baseline layer">
+            <img id="overlayCurrent" alt="Current layer">
+          </div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:18px">
+        <h2>All yearly outputs</h2>
+        <div class="muted">Select any card to make it the current-year layer.</div>
+        <div id="yearGrid" class="year-grid"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const YEARS = [2019,2020,2021,2022,2023,2024,2025,2026];
+    const imagePath = year => `PNG_Images/Coimbatore_${year}.png`;
+    const leftYear = document.getElementById('leftYear');
+    const rightYear = document.getElementById('rightYear');
+    const opacity = document.getElementById('opacity');
+    const overlayCurrent = document.getElementById('overlayCurrent');
+    YEARS.forEach(year => {
+      leftYear.add(new Option(year, year));
+      rightYear.add(new Option(year, year));
+    });
+    leftYear.value = '2019';
+    rightYear.value = '2026';
+
+    function render() {
+      const left = leftYear.value;
+      const right = rightYear.value;
+      document.getElementById('leftLabel').textContent = left;
+      document.getElementById('rightLabel').textContent = right;
+      document.getElementById('leftImage').src = imagePath(left);
+      document.getElementById('rightImage').src = imagePath(right);
+      document.getElementById('overlayBase').src = imagePath(left);
+      overlayCurrent.src = imagePath(right);
+      overlayCurrent.style.opacity = Number(opacity.value) / 100;
+      document.getElementById('opacityValue').textContent = `${opacity.value}%`;
+      document.querySelectorAll('.year-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.year === right);
+      });
+    }
+
+    YEARS.forEach(year => {
+      const card = document.createElement('button');
+      card.className = 'year-card';
+      card.dataset.year = year;
+      card.innerHTML = `<img src="${imagePath(year)}" alt="Coimbatore LULC ${year}"><span>${year}</span>`;
+      card.addEventListener('click', () => { rightYear.value = year; render(); });
+      document.getElementById('yearGrid').appendChild(card);
+    });
+    leftYear.addEventListener('change', render);
+    rightYear.addEventListener('change', render);
+    opacity.addEventListener('input', render);
+    render();
+  </script>
+</body>
+</html>

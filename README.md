@@ -161,6 +161,28 @@ end-to-end:
 **land-cover classification → change detection → seasonal false-positive
 filtering → spatial alerts → verification.**
 
+## Coimbatore multi-year outputs
+
+The repository also contains a standalone Coimbatore viewer in
+[`Coimbatore_LULC_MultiYear/`](./Coimbatore_LULC_MultiYear/). It reuses the
+already computed 50 m LULC exports for 2019–2026 and provides:
+
+- side-by-side comparison of any two years;
+- an adjustable-opacity overlay;
+- a yearly gallery for all eight outputs;
+- links to the original Earth Engine script and GeoTIFF files.
+
+Open `Coimbatore_LULC_MultiYear/index.html` directly in a browser. No Earth
+Engine or Python server is required for this viewer.
+
+## Interactive change polygons
+
+In the original TN-LCO web application, detected change polygons are clickable.
+Selecting a polygon opens a popup with its change ID, source and destination
+classes, area, centroid latitude/longitude, and an **Open location in Google
+Maps** link. The centroid coordinates are returned by `/api/changes` and are
+also used by the existing ground-context and alert workflows.
+
 This is an architectural decision, not merely a reduction in features.
 
 A system with fewer components that actually exchange real data is more

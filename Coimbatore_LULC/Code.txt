@@ -1,0 +1,367 @@
+
+// 1. TAMIL NADU BOUNDARY
+var cities = ee.FeatureCollection("FAO/GAUL/2015/level2")
+  .filter(ee.Filter.eq('ADM0_NAME', 'India'))
+  .filter(ee.Filter.eq('ADM1_NAME', 'Tamil Nadu'))
+  .filter(ee.Filter.eq('ADM2_NAME', 'Coimbatore'));
+
+var region = cities.geometry();
+
+Map.centerObject(cities, 7);
+
+// 2. PARAMETERS
+
+var SAMPLES_PER_CLASS = 400;
+var RF_TREES = 100;
+
+var S2_BANDS = [
+  'B2', 'B3', 'B4',
+  'B8', 'B11', 'B12'
+];
+
+var PREDICTORS = [
+  'B2', 'B3', 'B4', 'B8', 'B11', 'B12',
+  'NDVI', 'MNDWI', 'NDBI', 'NDMI', 'BSI',
+  'VV', 'VH',
+  'elevation', 'slope'
+];
+
+// TN-LCO classes
+// 1 = Water
+// 2 = Forest/Trees
+// 3 = Cropland
+// 4 = Built-up
+// 5 = Barren
+// 6 = Shrub/Grass
+
+var palette = [
+  '1f6feb',  // Water
+  '1a7f37',  // Forest/Trees
+  'a4d65e',  // Cropland
+  'd1242f',  // Built-up
+  'bf8700',  // Barren
+  '7d8590'   // Shrub/Grass
+];
+
+// 3. SENTINEL-2 CLOUD MASK
+
+function maskS2(image) {
+
+  var scl = image.select('SCL');
+
+  var bad = scl.eq(3)
+    .or(scl.eq(8))
+    .or(scl.eq(9))
+    .or(scl.eq(10))
+    .or(scl.eq(11));
+
+  return image
+    .updateMask(bad.not())
+    .divide(10000)
+    .copyProperties(image, ['system:time_start']);
+}
+
+// 4. SENTINEL-2 COMPOSITE
+
+function s2Composite(start, end) {
+
+  var collection = ee.ImageCollection(
+    'COPERNICUS/S2_SR_HARMONIZED'
+  )
+  .filterBounds(region)
+  .filterDate(start, end)
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 60))
+  .map(maskS2);
+
+  return collection
+    .select(S2_BANDS)
+    .median()
+    .clip(region);
+}
+
+// 5. SPECTRAL INDICES
+
+function addIndices(image) {
+
+  var NDVI = image
+    .normalizedDifference(['B8', 'B4'])
+    .rename('NDVI');
+
+  var MNDWI = image
+    .normalizedDifference(['B3', 'B11'])
+    .rename('MNDWI');
+
+  var NDBI = image
+    .normalizedDifference(['B11', 'B8'])
+    .rename('NDBI');
+
+  var NDMI = image
+    .normalizedDifference(['B8', 'B11'])
+    .rename('NDMI');
+
+  var BSI = image.expression(
+    '(B11 + B4 - B8 - B2) / (B11 + B4 + B8 + B2)',
+    {
+      B11: image.select('B11'),
+      B4: image.select('B4'),
+      B8: image.select('B8'),
+      B2: image.select('B2')
+    }
+  ).rename('BSI');
+
+  return image
+    .addBands(NDVI)
+    .addBands(MNDWI)
+    .addBands(NDBI)
+    .addBands(NDMI)
+    .addBands(BSI);
+}
+
+// 6. SENTINEL-1
+
+function s1Composite(start, end) {
+
+  var collection = ee.ImageCollection(
+    'COPERNICUS/S1_GRD'
+  )
+  .filterBounds(region)
+  .filterDate(start, end)
+  .filter(ee.Filter.eq('instrumentMode', 'IW'))
+  .filter(ee.Filter.eq('orbitProperties_pass', 'DESCENDING'))
+  .filter(
+    ee.Filter.listContains(
+      'transmitterReceiverPolarisation', 'VV'
+    )
+  )
+  .filter(
+    ee.Filter.listContains(
+      'transmitterReceiverPolarisation', 'VH'
+    )
+  );
+
+  return collection
+    .select(['VV', 'VH'])
+    .median()
+    .clip(region);
+}
+
+// 7. TERRAIN - SRTM
+
+var dem = ee.Image('USGS/SRTMGL1_003')
+  .clip(region);
+
+var elevation = dem
+  .rename('elevation');
+
+var slope = ee.Terrain
+  .slope(dem)
+  .rename('slope');
+
+// 8. COMPLETE FEATURE STACK
+
+function buildStack(start, end) {
+
+  var optical = s2Composite(start, end);
+
+  optical = addIndices(optical);
+
+  var radar = s1Composite(start, end);
+
+  return optical
+    .addBands(radar)
+    .addBands(elevation)
+    .addBands(slope);
+}
+
+// 9. DYNAMIC WORLD LABEL
+
+function dwLabel(start, end) {
+
+  var dw = ee.ImageCollection(
+    'GOOGLE/DYNAMICWORLD/V1'
+  )
+  .filterBounds(region)
+  .filterDate(start, end)
+  .select('label');
+
+  var label = dw.mode();
+
+  // Dynamic World → TN-LCO classes
+  var mapped = label.remap(
+    [0, 1, 2, 3, 4, 5, 6, 7],
+    [1, 2, 6, 3, 3, 6, 4, 5]
+  );
+
+  return mapped
+    .rename('class')
+    .clip(region);
+}
+
+// 10. RANDOM FOREST CLASSIFICATION
+
+function classifyYear(start, end, seed, year) {
+
+  print('Processing year:', year);
+
+  // Feature stack
+  var stack = buildStack(start, end);
+
+  // Dynamic World weak labels
+  var label = dwLabel(start, end);
+
+  // Training samples
+  var samples = stack
+    .select(PREDICTORS)
+    .addBands(label)
+    .stratifiedSample({
+      numPoints: SAMPLES_PER_CLASS,
+      classBand: 'class',
+      region: region,
+      scale: 10,
+      seed: seed,
+      geometries: false,
+      tileScale: 4
+    });
+
+  // Train Random Forest
+  var classifier = ee.Classifier
+    .smileRandomForest({
+      numberOfTrees: RF_TREES,
+      seed: seed
+    })
+    .train({
+      features: samples,
+      classProperty: 'class',
+      inputProperties: PREDICTORS
+    });
+
+  // Classification
+  var classified = stack
+    .select(PREDICTORS)
+    .classify(classifier)
+    .rename('LULC_' + year)
+    .clip(region);
+
+  return classified;
+}
+
+// 11. CREATE 2019-2026 IMAGES
+
+var lulc2019 = classifyYear(
+  '2019-01-01', '2020-01-01', 42, 2019
+);
+
+var lulc2020 = classifyYear(
+  '2020-01-01', '2021-01-01', 43, 2020
+);
+
+var lulc2021 = classifyYear(
+  '2021-01-01', '2022-01-01', 44, 2021
+);
+
+var lulc2022 = classifyYear(
+  '2022-01-01', '2023-01-01', 45, 2022
+);
+
+var lulc2023 = classifyYear(
+  '2023-01-01', '2024-01-01', 46, 2023
+);
+
+var lulc2024 = classifyYear(
+  '2024-01-01', '2025-01-01', 47, 2024
+);
+
+var lulc2025 = classifyYear(
+  '2025-01-01', '2026-01-01', 48, 2025
+);
+
+var lulc2026 = classifyYear(
+  '2026-01-01', '2026-09-01', 49, 2026
+);
+
+// 12. DISPLAY
+
+Map.addLayer(
+  lulc2019,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2019'
+);
+
+Map.addLayer(
+  lulc2020,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2020'
+);
+
+Map.addLayer(
+  lulc2021,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2021'
+);
+
+Map.addLayer(
+  lulc2022,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2022'
+);
+
+Map.addLayer(
+  lulc2023,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2023'
+);
+
+Map.addLayer(
+  lulc2024,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2024'
+);
+
+Map.addLayer(
+  lulc2025,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2025'
+);
+
+Map.addLayer(
+  lulc2026,
+  {min: 1, max: 6, palette: palette},
+  'LULC 2026'
+);
+
+// 13. DISTRICT BOUNDARIES
+
+Map.addLayer(
+  cities.style({
+    color: '000000',
+    fillColor: '00000000',
+    width: 1
+  }),
+  {},
+  'Tamil Nadu Districts'
+);
+
+// 14. EXPORT IMAGES
+
+function exportImage(image, year) {
+
+  Export.image.toDrive({
+    image: image.unmask(-1),
+    description: 'Coimbatore_LCO_LULC_50_' + year,
+    folder: 'Coimbatore_LCO',
+    fileNamePrefix: 'Coimbatore_LCO_LULC_50_' + year,
+    region: region,
+    scale: 50,
+    maxPixels: 1e13
+  });
+
+}
+
+exportImage(lulc2019, 2019);
+exportImage(lulc2020, 2020);
+exportImage(lulc2021, 2021);
+exportImage(lulc2022, 2022);
+exportImage(lulc2023, 2023);
+exportImage(lulc2024, 2024);
+exportImage(lulc2025, 2025);
+exportImage(lulc2026, 2026);

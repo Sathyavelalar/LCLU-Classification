@@ -135,7 +135,11 @@ async function boot() {
     map.addLayer({id:'sn', type:'circle', source:'sensors',
       paint:{'circle-radius':7,'circle-color':'#f0c674','circle-stroke-color':'#000','circle-stroke-width':2}});
 
-    map.on('click','ch-fill', e => selectChange(e.features[0].properties.id));
+    map.on('click','ch-fill', e => {
+      const p = e.features[0].properties;
+      showChangePopup(p, e.lngLat);
+      selectChange(p.id);
+    });
     map.on('mouseenter','ch-fill', ()=> map.getCanvas().style.cursor='pointer');
     map.on('mouseleave','ch-fill', ()=> map.getCanvas().style.cursor='');
     map.on('click','sn', e => {
@@ -222,6 +226,33 @@ async function loadSensors() {
     return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #30363d">
       <span>${p.code}</span><span class=muted>${p.soil_moisture ?? '–'}% soil · ${p.temperature_c ?? '–'}°C</span></div>`;
   }).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[ch]));
+}
+
+function showChangePopup(p, lngLat) {
+  const lon = Number(p.centroid_lon);
+  const lat = Number(p.centroid_lat);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+  new maplibregl.Popup({maxWidth:'320px'})
+    .setLngLat([lon, lat])
+    .setHTML(`
+      <div><b>Change #${escapeHtml(p.id)}</b></div>
+      <div style="margin-top:4px">${escapeHtml(p.from_name)} → ${escapeHtml(p.to_name)}</div>
+      <div class="muted" style="margin-top:4px">
+        Area: ${escapeHtml(p.area_ha)} ha<br>
+        Location: ${lat.toFixed(6)}, ${lon.toFixed(6)}
+      </div>
+      <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer"
+         style="display:inline-block;margin-top:8px;color:#58a6ff">
+        Open location in Google Maps
+      </a>`)
+    .addTo(map);
 }
 
 function flyTo(lon, lat, id) { map.flyTo({center:[lon,lat], zoom:14}); selectChange(id); }
